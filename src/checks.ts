@@ -122,7 +122,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
   }
 
   // --- Phase 2: Semantic AI Review ---
-  const highRiskFiles = [...new Set([...ctx.apiFiles, ...ctx.aiFiles])].slice(0, 15);
+  const highRiskFiles = [...new Set([...ctx.apiFiles, ...ctx.aiFiles, ...ctx.instructionFiles])].slice(0, 20);
   if (highRiskFiles.length > 0) {
     console.log(chalk.blue(`\n🧠 Analyzing logic in ${highRiskFiles.length} high-risk files...`));
     const filesToReview = [];

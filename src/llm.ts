@@ -38,8 +38,10 @@ Focus on:
 1. Missing authentication/authorization on sensitive routes or server actions.
 2. AI endpoints without rate limiting or cost controls.
 3. Unsafe file uploads (missing size/mime-type validation).
-4. Logical flaws that could lead to data leaks or server crashes.
-5. Expensive or infinite loops in AI-generated code.
+4. Missing timeouts or retry logic on external API calls (making the app fragile).
+5. Quality of AI instructions: Are the guardrails in SHIPCHECK.md or .cursorrules weak, stale, or missing critical security rules?
+6. Logical flaws that could lead to data leaks or server crashes.
+7. Expensive or infinite loops in AI-generated code.
 
 Do NOT report on:
 - Formatting or style.
