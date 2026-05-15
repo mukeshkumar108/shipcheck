@@ -69,7 +69,7 @@ You MUST return a JSON object with EXACTLY this structure — use these exact fi
       "whyItMatters": "Real-world consequence if not fixed",
       "severity": "critical",
       "whatToDo": "Concrete steps to fix this",
-      "fixPrompt": "Surgical instruction for an AI coding assistant to fix this correctly",
+      "fixPrompt": "Open [exact/file/path.ts] and find the [function name or line description]. [Describe exactly what needs to change and why]. Show me the updated code before applying it.",
       "file": "path/to/file.ts",
       "line": 42
     }
@@ -77,7 +77,9 @@ You MUST return a JSON object with EXACTLY this structure — use these exact fi
 }
 
 severity must be one of: critical, high, medium, low, info
-file and line are optional. All other fields are required. Return an empty findings array if nothing actionable is found.`,
+file and line are optional. All other fields are required. Return an empty findings array if nothing actionable is found.
+
+CRITICAL: The fixPrompt must always reference the exact file path and function/location so a coding AI has enough context to make the right change without reading the whole codebase. Never write a generic instruction — always anchor it to a specific file and location.`,
           },
           {
             role: 'user',

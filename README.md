@@ -1,87 +1,125 @@
 # Shipcheck
 
-A simple safety check for AI-built apps.
+You've been building with AI. The code works. You're almost ready to ship.
 
-Shipcheck helps solo builders catch common dangerous, fragile, or expensive mistakes before shipping.
+Shipcheck is the 30-second check you run before you do.
 
-It is not a linter.
-It is not a replacement for a real security audit.
-It is another pair of eyes for people building fast with AI.
+It looks at your actual code and tells you the specific things that could blow up after launch — the stuff Cursor and Claude built for you, but didn't audit.
 
-## Who it is for
+---
 
-- solo founders
-- vibe coders
-- indie hackers
-- designers/operators building with Claude, Cursor, Replit, Lovable, Bolt, or Codex
-- people who want to know: “is this safe enough to ship?”
+## Who this is for
+
+You're building with Cursor, Claude, Bolt, Lovable, Replit, or Codex. You're moving fast. You don't have a team or a security person. You're not deep in software — you're deep in your product.
+
+You don't want CodeRabbit commenting on 400 things. You don't want a linter. You want someone to look at your app and say: *"this part could burn you."*
+
+That's Shipcheck.
+
+---
+
+## What it catches
+
+The mistakes AI assistants commonly make — or quietly leave for you to deal with:
+
+- **Exposed secrets** — API keys hardcoded in your code, or sitting in a `.env` file that could accidentally get committed to GitHub. Checked locally — nothing ever leaves your machine for this.
+- **Skipped security work** — AI assistants write `// TODO: add auth before deploying` and move on. You ship it. Shipcheck finds every one of these.
+- **Routes anyone can call** — API endpoints with no login check. Anyone on the internet can hit them.
+- **The $500 overnight mistake** — AI endpoints with no rate limit. One script, one bad actor, one crawled-to-death endpoint. Shipcheck flags any AI integration that's unprotected.
+- **User data leaks** — can user A access user B's data by changing a number in the URL? This is one of the most common AI-coding mistakes and one of the most dangerous.
+- **Requests that hang forever** — calls to Stripe, OpenAI, or any third-party API with no timeout. One slow response can take down your whole server.
+- **Secrets in your browser** — `NEXT_PUBLIC_` variables that expose private API keys to anyone who opens your site's source code.
+- **Missing guardrails** — no `SHIPCHECK.md` or `.cursorrules` means your AI has no safety instructions. It'll keep making the same unsafe patterns.
+
+---
 
 ## Install
 
-Coming soon.
+```bash
+npm install -g shipcheck
+```
 
 For local development:
 
 ```bash
-npm install
-npm run dev
+git clone https://github.com/yourusername/shipcheck
+cd shipcheck && npm install
 ```
 
-## Commands
-```bash
-shipcheck init     # Create SHIPCHECK.md guardrails (stack-aware)
-shipcheck          # Full scan: deterministic + semantic AI review
-shipcheck ship     # Fast local scan only — no AI, safe for pre-commit/CI
-shipcheck -v       # Verbose mode (see which files were sent to AI)
-```
+## Setup
 
-## What Shipcheck looks for
+Shipcheck uses your own [OpenRouter](https://openrouter.ai) API key. The AI review of a typical project costs less than a cent.
 
-Shipcheck acts as a senior developer partner, specifically hunting for the "vibe-coder" mistakes that AI assistants often make:
+Create a `.env` file in the shipcheck directory:
 
-*   **🛡️ Exposed Secrets**: Hardcoded API keys, tokens, or credentials — including provider-specific patterns for OpenAI, Anthropic, Stripe, and AWS. Checked locally; never sent to an external API.
-*   **🔐 Missing Auth**: Sensitive API routes or Server Actions that are missing authentication or authorization checks.
-*   **📤 Unsafe Uploads**: File upload endpoints that lack size limits or MIME-type validation.
-*   **💸 AI Cost Controls**: Expensive AI endpoints that are missing rate limits or proper error handling.
-*   **🔄 AI Loops**: Logic that could lead to infinite loops or massive token wastage in AI-generated code.
-*   **📝 Stale Instructions**: Missing or weak `SHIPCHECK.md` / `.cursorrules` that fail to guide your AI on security.
-*   **📉 Architectural Fragility**: Files that are becoming too large or complex for AI assistants to safely reason about.
-
-## How it works: Hybrid AI Review
-
-Shipcheck uses a two-phase engine to catch what linters miss:
-
-1. **Local Deterministic Scan**: Regex checks catch hardcoded secrets locally — including provider-specific patterns for OpenAI, Anthropic, Stripe, and AWS. Files containing secrets are **never** sent to the AI.
-2. **Semantic AI Review**: High-risk files (API routes, Server Actions, AI integrations) are analyzed by **DeepSeek v4 Flash** via OpenRouter. It hunts for logical flaws like missing auth, IDOR, unsafe uploads, N+1 queries, and expensive AI loops.
-
-`shipcheck ship` skips the AI phase entirely — deterministic only, no API key needed, fast enough for a pre-commit hook.
-
-## Bring your own key
-
-Shipcheck uses your own model API key via OpenRouter.
-
-Create a `.env` file:
 ```bash
 OPENROUTER_API_KEY=your_key_here
-SHIPCHECK_MODEL=deepseek/deepseek-v4-flash  # Default
 ```
 
-## Proof of Work
+---
 
-Shipcheck doesn't just stay silent. Every scan provides a "Proof of Work" summary showing exactly how many API routes, AI integrations, and risky surfaces were analyzed. Use `--verbose` to see the exact files analyzed by the AI.
+## Commands
 
-## Output format
+```bash
+shipcheck init    # Creates a SHIPCHECK.md guardrail file tailored to your stack
+shipcheck         # Full review: local scan + AI analysis (~30 seconds)
+shipcheck ship    # Fast local-only check — no AI, no API key needed
+shipcheck -v      # Verbose: shows exactly which files the AI reviewed
+```
 
-Every finding should explain:
+**`shipcheck ship`** is designed to be fast enough for a pre-commit hook or CI step. It runs all the local checks (secrets, TODOs, env files) without calling any AI.
 
-- what we found
-- why it matters
-- how serious it is
-- what to do next
-- what to paste into Claude/Codex/Cursor
+---
+
+## How it works
+
+**Step 1 — Local scan (instant, private)**
+
+Looks at every file in your project for hardcoded secrets using patterns specific to OpenAI, Anthropic, Stripe, and AWS keys. Also catches `NEXT_PUBLIC_` leaks, tracked `.env` files, and security TODOs your AI assistant left behind. Nothing is sent anywhere.
+
+**Step 2 — AI triage (fast)**
+
+Sends your file tree to DeepSeek and asks: *which files are highest risk?* It understands your project structure — monorepos, non-standard layouts, any framework — not just Next.js conventions. This replaces the guesswork of folder patterns.
+
+**Step 3 — AI deep review (~25 seconds)**
+
+Reads the highest-risk files and looks for logic problems: missing auth, IDOR vulnerabilities, no rate limits, hanging requests, silent failures. It reads your actual code, not a summary.
+
+Files containing detected secrets are never sent to the AI — ever.
+
+---
+
+## What you get
+
+Every finding tells you:
+
+- What was found and where
+- Why it matters in plain English (what actually happens if you ignore it)
+- What to do about it
+- A paste-ready prompt for Claude or Cursor — anchored to the specific file and function, so your AI makes the right fix in the right place
+
+---
+
+## `shipcheck init`
+
+Generates a `SHIPCHECK.md` file — a set of instructions for your AI coding assistant. It detects your stack (Next.js, Express, Node) and includes guardrails specific to what you're building.
+
+Once it exists, Shipcheck will review it on every scan to make sure your AI is being guided properly.
+
+---
+
+## What Shipcheck is not
+
+It is not a linter. It won't tell you about code style, variable names, or test coverage.
+
+It is not a replacement for a real security audit if you're handling payments, health data, or anything truly sensitive.
+
+It is one focused question: **could this hurt you after you ship?**
+
+---
 
 ## Philosophy
 
-Shipcheck is not trying to make your code perfect.
+Cursor and Claude are incredible at building. They're not great at auditing what they built. They don't know what's important to check before launch. They answer the questions you ask — and most vibe coders don't know the right questions yet.
 
-It is trying to stop you shipping something dangerous, fragile, or financially stupid.
+Shipcheck knows the questions.

@@ -51,7 +51,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
             whyItMatters: 'If you commit this to GitHub, your app could be compromised in seconds.',
             severity: 'critical',
             whatToDo: 'Move the secret to a .env file and add it to .gitignore.',
-            fixPrompt: `Move the hardcoded secret found in ${file} to a .env file and use process.env to access it.`,
+            fixPrompt: `Open ${file} and find the hardcoded secret value. Move it to a .env file, add .env to .gitignore, and replace the hardcoded value with process.env.YOUR_VAR_NAME. Show me the change before applying it.`,
             file,
           });
           break;
@@ -83,7 +83,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
           whyItMatters: 'Anyone visiting your site can see these keys in the browser source.',
           severity: envFile.isIgnored ? 'high' : 'critical',
           whatToDo: 'Remove NEXT_PUBLIC_ prefix or use a server-side route to hide the key.',
-          fixPrompt: `I have a secret key with NEXT_PUBLIC_ prefix in ${envFile.path}. Help me move this to a server-side route so it is not exposed to the client.`,
+          fixPrompt: `Open ${envFile.path} and find the variable with the NEXT_PUBLIC_ prefix that contains a secret key. Remove the NEXT_PUBLIC_ prefix and create a server-side API route that uses it instead of exposing it to the browser. Show me the plan before making changes.`,
           file: envFile.path,
         });
       } else if (hasSecret) {
@@ -95,7 +95,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
             whyItMatters: 'Anyone with access to the repo can see these secrets.',
             severity: 'critical',
             whatToDo: 'Remove this file from Git tracking using `git rm --cached` and add it to .gitignore.',
-            fixPrompt: `Help me remove ${envFile.path} from git tracking and add it to .gitignore.`,
+            fixPrompt: `Run: git rm --cached ${envFile.path} && echo "${envFile.path}" >> .gitignore && git add .gitignore. This removes the file from git history tracking without deleting it locally. Show me the commands before running them.`,
             file: envFile.path,
           });
         } else if (envFile.isIgnored) {
@@ -120,7 +120,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
             whyItMatters: 'If you run `git add .`, this file will be committed and your secrets leaked.',
             severity: 'high',
             whatToDo: 'Add this file to your .gitignore.',
-            fixPrompt: `Add ${envFile.path} to .gitignore.`,
+            fixPrompt: `Add ${envFile.path} to your .gitignore file so it can never be accidentally committed. Open .gitignore and add a new line with exactly: ${envFile.path}`,
             file: envFile.path,
           });
         }
@@ -143,7 +143,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
           whyItMatters: 'AI assistants leave these as reminders and move on. Vibe coders ship them. This is how auth gets skipped in production.',
           severity: 'high',
           whatToDo: 'Resolve every security TODO before shipping. Do not treat them as optional.',
-          fixPrompt: `Review and resolve the security-related TODO/FIXME comments in ${file}. Implement the missing auth, rate limiting, or sanitization they describe.`,
+          fixPrompt: `Open ${file} and search for TODO/FIXME comments related to auth, rate limiting, or security. Read the surrounding code to understand what was intentionally skipped. Implement each one — do not delete the comments without doing the work. Show me your plan for each one before starting.`,
           file,
         });
       }
@@ -163,7 +163,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
           whyItMatters: 'Large files are harder for AI assistants to safely edit and reason about.',
           severity: 'low',
           whatToDo: 'Split this file into smaller modules.',
-          fixPrompt: `Help me refactor ${file} into smaller, more manageable components or modules.`,
+          fixPrompt: `Open ${file} and look at its structure. Identify the largest logical sections (e.g. separate concerns like data fetching, business logic, UI). Suggest a split into smaller files before making any changes.`,
           file,
         });
       }
