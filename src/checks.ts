@@ -1,5 +1,7 @@
 import fs from 'fs/promises';
 import type { Finding, ScanContext } from './types.js';
+import { analyzeFilesWithAI } from './llm.js';
+import chalk from 'chalk';
 
 const SECRET_REGEX = /(?:key|secret|token|auth|password|pwd)[_-]?(?:id|value|str)?\s*[:=]\s*['"]([a-zA-Z0-9_\-\.]{16,})['"]/gi;
 const NEXT_PUBLIC_SECRET_REGEX = /NEXT_PUBLIC_(?:.*(?:SECRET|API|TOKEN|KEY).*)\s*=/gi;
@@ -7,7 +9,7 @@ const NEXT_PUBLIC_SECRET_REGEX = /NEXT_PUBLIC_(?:.*(?:SECRET|API|TOKEN|KEY).*)\s
 export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
   const findings: Finding[] = [];
 
-  // Check for missing instruction files
+  // --- Phase 1: Local Deterministic Scan ---
   if (ctx.instructionFiles.length === 0) {
     findings.push({
       id: 'missing-instructions',
@@ -20,10 +22,9 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
     });
   }
 
-  // Check for exposed secrets in non-env files
   for (const file of ctx.files) {
-    if (ctx.envFiles.includes(file) || file.endsWith('.md') || file.endsWith('.json')) continue;
-    
+    if (ctx.envFiles.some(e => e.path === file) || file.endsWith('.md') || file.endsWith('.json')) continue;
+    const isConfigOrDoc = file.endsWith('.md') || file.endsWith('.json') || file.endsWith('.yml') || file.endsWith('.yaml') || file.includes('config');
     try {
       const content = await fs.readFile(file, 'utf-8');
       if (content.match(SECRET_REGEX)) {
@@ -32,7 +33,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
           title: `Possible secret exposed in ${file}`,
           description: 'Hardcoded credentials detected.',
           whyItMatters: 'If you commit this to GitHub, your app could be compromised in seconds.',
-          severity: 'critical',
+          severity: isConfigOrDoc ? 'high' : 'critical',
           whatToDo: 'Move the secret to a .env file and add it to .gitignore.',
           fixPrompt: `Move the hardcoded secret found in ${file} to a .env file and use process.env to access it.`,
           file,
@@ -41,116 +42,100 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
     } catch (e) {}
   }
 
-  // Check for NEXT_PUBLIC secrets
+  let reportedIgnoredEnv = false;
   for (const envFile of ctx.envFiles) {
     try {
-      const content = await fs.readFile(envFile, 'utf-8');
-      if (content.match(NEXT_PUBLIC_SECRET_REGEX)) {
+      const content = await fs.readFile(envFile.path, 'utf-8');
+      const hasNextPublic = content.match(NEXT_PUBLIC_SECRET_REGEX);
+      const hasSecret = content.match(SECRET_REGEX) || hasNextPublic;
+
+      if (hasNextPublic) {
         findings.push({
           id: 'next-public-secret',
-          title: `Secret exposed via NEXT_PUBLIC in ${envFile}`,
+          title: `Secret exposed via NEXT_PUBLIC in ${envFile.path}`,
           description: 'NEXT_PUBLIC_ variables are bundled into the client-side code.',
           whyItMatters: 'Anyone visiting your site can see these keys in the browser source.',
-          severity: 'critical',
+          severity: envFile.isIgnored ? 'high' : 'critical',
           whatToDo: 'Remove NEXT_PUBLIC_ prefix or use a server-side route to hide the key.',
-          fixPrompt: `I have a secret key with NEXT_PUBLIC_ prefix in ${envFile}. Help me move this to a server-side route so it is not exposed to the client.`,
-          file: envFile,
+          fixPrompt: `I have a secret key with NEXT_PUBLIC_ prefix in ${envFile.path}. Help me move this to a server-side route so it is not exposed to the client.`,
+          file: envFile.path,
         });
-      }
-    } catch (e) {}
-  }
-
-  // Check API files for various issues
-  for (const apiFile of ctx.apiFiles) {
-    try {
-      const content = await fs.readFile(apiFile, 'utf-8');
-      const stats = await fs.stat(apiFile);
-
-      // Large API files
-      if (stats.size > 10000) { // > 10KB
-        findings.push({
-          id: 'large-api-file',
-          title: `Large API file: ${apiFile}`,
-          description: 'This route is getting a bit chunky.',
-          whyItMatters: 'Large files are harder for AIs to reason about and more prone to bugs.',
-          severity: 'low',
-          whatToDo: 'Refactor logic into smaller helper functions or separate files.',
-          fixPrompt: `The file ${apiFile} is too large. Help me refactor the logic into smaller, reusable functions.`,
-          file: apiFile,
-        });
-      }
-
-      // AI usage without rate limiting
-      if (ctx.aiUsageDetected && (content.includes('openai') || content.includes('anthropic') || content.includes('@ai-sdk'))) {
-        if (!content.toLowerCase().includes('ratelimit') && !content.toLowerCase().includes('upstash') && !content.toLowerCase().includes('limit')) {
+      } else if (hasSecret) {
+        if (envFile.isTracked) {
           findings.push({
-            id: 'ai-no-ratelimit',
-            title: `AI usage without rate limiting in ${apiFile}`,
-            description: 'Your AI costs could skyrocket.',
-            whyItMatters: 'A simple script could drain your API credits if there is no rate limiting.',
-            severity: 'high',
-            whatToDo: 'Add rate limiting using a library like Upstash or a middleware.',
-            fixPrompt: `Add rate limiting to the AI endpoint in ${apiFile} to prevent abuse and control costs.`,
-            file: apiFile,
-          });
-        }
-      }
-
-      // Uploads without validation
-      if (apiFile.toLowerCase().includes('upload') || content.toLowerCase().includes('upload')) {
-        if (!content.toLowerCase().includes('size') && !content.toLowerCase().includes('type')) {
-          findings.push({
-            id: 'unvalidated-upload',
-            title: `Unvalidated upload route in ${apiFile}`,
-            description: 'No file size or type checks found.',
-            whyItMatters: 'Users could upload massive files or malicious scripts, crashing your server or hacking users.',
-            severity: 'high',
-            whatToDo: 'Add checks for file size (e.g., max 5MB) and mime-type.',
-            fixPrompt: `Add file size and type validation to the upload route in ${apiFile}.`,
-            file: apiFile,
-          });
-        }
-      }
-
-      // Admin routes without auth
-      if (apiFile.toLowerCase().includes('admin') || content.toLowerCase().includes('admin')) {
-        if (!content.toLowerCase().includes('auth') && !content.toLowerCase().includes('session') && !content.toLowerCase().includes('user')) {
-          findings.push({
-            id: 'unprotected-admin',
-            title: `Unprotected admin route in ${apiFile}`,
-            description: 'Sensitive route seems to lack auth checks.',
-            whyItMatters: 'Anyone could access your admin data or perform admin actions.',
+            id: 'tracked-env-secret',
+            title: `Secret exposed in tracked env file: ${envFile.path}`,
+            description: 'You are tracking an environment file containing secrets in Git.',
+            whyItMatters: 'Anyone with access to the repo can see these secrets.',
             severity: 'critical',
-            whatToDo: 'Add a check to ensure the user is logged in and has admin privileges.',
-            fixPrompt: `Add authentication and authorization checks to the admin route in ${apiFile}.`,
-            file: apiFile,
+            whatToDo: 'Remove this file from Git tracking using `git rm --cached` and add it to .gitignore.',
+            fixPrompt: `Help me remove ${envFile.path} from git tracking and add it to .gitignore.`,
+            file: envFile.path,
+          });
+        } else if (envFile.isIgnored) {
+          if (!reportedIgnoredEnv) {
+            findings.push({
+              id: 'ignored-env-file',
+              title: `Local env files detected and appear ignored. Good.`,
+              description: `Found ignored env files (e.g. ${envFile.path}).`,
+              whyItMatters: 'Keeping secrets in ignored files prevents accidental leaks.',
+              severity: 'info',
+              whatToDo: 'Nothing. You are doing it right.',
+              fixPrompt: '',
+              file: envFile.path,
+            });
+            reportedIgnoredEnv = true;
+          }
+        } else {
+          findings.push({
+            id: 'untracked-unignored-env-secret',
+            title: `Secret in untracked, un-ignored env file: ${envFile.path}`,
+            description: 'This env file is not ignored by git. You might accidentally commit it.',
+            whyItMatters: 'If you run `git add .`, this file will be committed and your secrets leaked.',
+            severity: 'high',
+            whatToDo: 'Add this file to your .gitignore.',
+            fixPrompt: `Add ${envFile.path} to .gitignore.`,
+            file: envFile.path,
           });
         }
       }
-
     } catch (e) {}
   }
 
-  // Weak instructions check
-  for (const instFile of ctx.instructionFiles) {
+  for (const file of ctx.files) {
+    if (file.includes('node_modules') || file.includes('.git')) continue;
     try {
-      const content = (await fs.readFile(instFile, 'utf-8')).toLowerCase();
-      const requirements = ['security', 'env', 'auth', 'upload', 'rate limit'];
-      const missing = requirements.filter(req => !content.includes(req));
-
-      if (missing.length > 2) {
+      const stats = await fs.stat(file);
+      if (stats.size > 20000 && (file.endsWith('.ts') || file.endsWith('.js') || file.endsWith('.tsx') || file.endsWith('.jsx'))) {
         findings.push({
-          id: 'weak-instructions',
-          title: `Weak instructions in ${instFile}`,
-          description: 'Important security guardrails are missing.',
-          whyItMatters: 'If the AI doesn\'t know these rules, it will keep making the same mistakes.',
-          severity: 'medium',
-          whatToDo: `Add mentions of ${missing.join(', ')} to your instructions.`,
-          fixPrompt: `Improve the AI instructions in ${instFile} by adding guardrails for: ${missing.join(', ')}.`,
-          file: instFile,
+          id: 'large-file',
+          title: `Large file: ${file}`,
+          description: 'This file is getting very large.',
+          whyItMatters: 'Large files are harder for AI assistants to safely edit and reason about.',
+          severity: 'low',
+          whatToDo: 'Split this file into smaller modules.',
+          fixPrompt: `Help me refactor ${file} into smaller, more manageable components or modules.`,
+          file,
         });
       }
     } catch (e) {}
+  }
+
+  // --- Phase 2: Semantic AI Review ---
+  const highRiskFiles = [...new Set([...ctx.apiFiles, ...ctx.aiFiles])].slice(0, 15);
+  if (highRiskFiles.length > 0) {
+    console.log(chalk.blue(`\n🧠 Analyzing logic in ${highRiskFiles.length} high-risk files...`));
+    const filesToReview = [];
+    for (const path of highRiskFiles) {
+      try {
+        const content = await fs.readFile(path, 'utf-8');
+        filesToReview.push({ path, content: content.slice(0, 10000) });
+        ctx.analyzedByAI.push(path);
+      } catch (e) {}
+    }
+
+    const aiFindings = await analyzeFilesWithAI(filesToReview);
+    findings.push(...aiFindings);
   }
 
   return findings;

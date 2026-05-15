@@ -29,31 +29,32 @@ npm run dev
 
 ## Commands
 ```bash
-shipcheck init
-shipcheck
-shipcheck ship
+shipcheck init     # Create SHIPCHECK.md guardrails
+shipcheck          # Run safety check (Semantic AI + Deterministic)
+shipcheck ship     # Launch-critical scan only
+shipcheck -v       # Verbose mode (see what AI is thinking)
 ```
+
+## How it works: Hybrid AI Review
+
+Shipcheck uses a two-phase engine to catch what linters miss:
+
+1. **Local Deterministic Scan**: Blazing fast regex checks catch hardcoded secrets locally. This ensures your private keys are **never** sent to an external AI API.
+2. **Semantic AI Review**: High-risk files (APIs, Server Actions, AI integrations) are analyzed by **DeepSeek**. It looks for logical flaws like missing auth, unsafe uploads, and expensive AI loops.
 
 ## Bring your own key
 
-Shipcheck uses your own model API key.
+Shipcheck uses your own model API key via OpenRouter.
 
 Create a `.env` file:
 ```bash
 OPENROUTER_API_KEY=your_key_here
-SHIPCHECK_MODEL=deepseek/deepseek-v4-flash
+SHIPCHECK_MODEL=deepseek/deepseek-v4-flash  # Default
 ```
 
-## What Shipcheck looks for
+## Proof of Work
 
-* exposed API keys
-* missing auth on sensitive routes
-* unsafe upload endpoints
-* AI endpoints with no rate limiting
-* expensive AI usage patterns
-* missing timeouts/retries
-* stale or missing AI coding instructions
-* files that are becoming hard for AI assistants to safely edit
+Shipcheck doesn't just stay silent. Every scan provides a "Proof of Work" summary showing exactly how many API routes, AI integrations, and risky surfaces were analyzed. Use `--verbose` to see the exact files analyzed by the AI.
 
 ## Output format
 

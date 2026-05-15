@@ -6,13 +6,17 @@ import { scanProject } from './scanner.js';
 import { runChecks } from './checks.js';
 import { printFinding, printSummary, printInitSuccess, printInitExists } from './output.js';
 import { hasAIEnabled } from './llm.js';
+import type { Finding } from './types.js';
 
 const program = new Command();
 
 program
   .name('shipcheck')
   .description('A friendly safety check for vibe-coded apps.')
-  .version('0.0.1');
+  .version('0.0.1')
+  .option('-u, --include-untracked', 'Include untracked files in scan')
+  .option('-v, --verbose', 'Show detailed AI analysis and debug info')
+  .option('-a, --all', 'Show all findings without grouping or filtering');
 
 program
   .command('init')
@@ -54,30 +58,74 @@ This file contains safety rules for AI coding assistants (Claude, Cursor, etc.).
 program
   .command('ship')
   .description('Scan for launch-critical issues')
-  .action(async () => {
-    await runScan(true);
+  .option('-u, --include-untracked', 'Include untracked files in scan')
+  .option('-v, --verbose', 'Show detailed AI analysis and debug info')
+  .option('-a, --all', 'Show all findings without grouping or filtering')
+  .action(async (options) => {
+    const globalOptions = program.opts();
+    await runScan(true, { ...globalOptions, ...options });
   });
 
 program
-  .action(async () => {
-    await runScan(false);
+  .action(async (options) => {
+    const globalOptions = program.opts();
+    await runScan(false, { ...globalOptions, ...options });
   });
 
-async function runScan(isShipMode: boolean) {
-  const ctx = await scanProject(isShipMode);
+async function runScan(isShipMode: boolean, options: any) {
+  const ctx = await scanProject(isShipMode, options.includeUntracked);
   const allFindings = await runChecks(ctx);
 
-  let findings = allFindings;
-  if (isShipMode) {
-    // Only show critical, high, and medium findings for 'ship' command
-    findings = allFindings.filter(f => ['critical', 'high', 'medium'].includes(f.severity));
+  let findingsToPrint = allFindings;
+  let rawCount = allFindings.length;
+
+  if (!options.all) {
+    const { grouped, totalRaw } = groupFindings(allFindings);
+    findingsToPrint = grouped;
+    rawCount = totalRaw;
+
+    findingsToPrint = findingsToPrint.filter(f => ['critical', 'high', 'medium'].includes(f.severity));
+  } else if (isShipMode) {
+    findingsToPrint = allFindings.filter(f => ['critical', 'high', 'medium'].includes(f.severity));
   }
 
-  for (const finding of findings) {
+  if (!options.all && findingsToPrint.length > 10) {
+    findingsToPrint = findingsToPrint.slice(0, 10);
+  }
+
+  for (const finding of findingsToPrint) {
     printFinding(finding);
   }
 
-  printSummary(findings, hasAIEnabled());
+  printSummary(ctx, findingsToPrint, rawCount, hasAIEnabled(), options);
+}
+
+function groupFindings(findings: Finding[]): { grouped: Finding[], totalRaw: number } {
+  const groups = new Map<string, { finding: Finding, files: string[] }>();
+
+  for (const f of findings) {
+    const key = f.id;
+    if (groups.has(key)) {
+      const group = groups.get(key)!;
+      if (f.file && !group.files.includes(f.file)) {
+        group.files.push(f.file);
+      }
+    } else {
+      groups.set(key, { finding: { ...f }, files: f.file ? [f.file] : [] });
+    }
+  }
+
+  const grouped = Array.from(groups.values()).map(g => {
+    const f = g.finding;
+    if (g.files.length > 1) {
+      const baseTitle = f.title.includes(' in ') ? f.title.split(' in ')[0] : f.title;
+      f.title = `${baseTitle} (in ${g.files.length} files)`;
+      f.file = g.files.slice(0, 3).join(', ') + (g.files.length > 3 ? ` ... (+${g.files.length - 3} more)` : '');
+    }
+    return f;
+  });
+
+  return { grouped, totalRaw: findings.length };
 }
 
 program.parse(process.argv);
