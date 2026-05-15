@@ -17,6 +17,10 @@ export async function analyzeFilesWithAI(files: { path: string, content: string 
 
   const context = files.map(f => `File: ${f.path}\nContent:\n${f.content}`).join('\n\n---\n\n');
 
+  // Add timeout with AbortController
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -24,6 +28,7 @@ export async function analyzeFilesWithAI(files: { path: string, content: string 
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: SHIPCHECK_MODEL,
         response_format: { type: "json_object" },
@@ -44,7 +49,7 @@ CRITICAL REVIEW CATEGORIES:
    - Tight coupling: Is business logic baked into components or routes instead of being separated?
    - Missing Timeouts/Retries: Will one slow third-party API call (Stripe, Twilio) hang the entire process?
    - Scale Traps: Are file uploads going to local disk instead of object storage (S3)? Is state stored in-memory (breaking horizontal scale)?
-4. 🔄 OPERATIONAL BLIND SPOTS: 
+4. 🔄 OPERATIONAL BLIND BLOTS: 
    - Silent Failures: Are catch blocks swallowing errors without context?
    - Logic Loops: Code that could cause infinite token wastage in AI-generated flows.
 5. 📝 INSTRUCTION QUALITY: Review SHIPCHECK.md/rules. Are they generic? Do they fail to protect the specific "risky surfaces" of this app?
@@ -52,9 +57,9 @@ CRITICAL REVIEW CATEGORIES:
 RESPONSE PHILOSOPHY:
 - Prioritize by COST and SLEEP, not by count. If a file has 10 minor issues but 1 that could leak all user data, focus on the leak.
 - Be opinionated about PATTERNS. Don't just flag a problem; explain the "shape" of the correct solution.
-- Use "Why it matters" to explain the real-world consequence (e.g., "A single script could drain your balance" or "This will lock your DB at 3am").
+- Use "Why it matters" to explain the real-world consequence.
 
-Return findings in a JSON object with a "findings" key. Each finding MUST have a "fixPrompt" that is a surgical, high-quality instruction for an AI assistant to refactor the code correctly.`,
+Return findings in a JSON object with a "findings" key. Each finding MUST have a "fixPrompt" that is a surgical instruction.`,
           },
           {
             role: 'user',
@@ -64,8 +69,11 @@ Return findings in a JSON object with a "findings" key. Each finding MUST have a
       }),
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`OpenRouter API error: ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}. ${JSON.stringify(errorData)}`);
     }
 
     const data = await response.json() as any;
@@ -78,7 +86,11 @@ Return findings in a JSON object with a "findings" key. Each finding MUST have a
     
     return findings;
   } catch (e) {
-    console.error(chalk.red(`\n❌ AI Review failed: ${e instanceof Error ? e.message : String(e)}`));
+    if (e instanceof Error && e.name === 'AbortError') {
+      console.error(chalk.red(`\n❌ AI Review timed out after 30 seconds.`));
+    } else {
+      console.error(chalk.red(`\n❌ AI Review failed: ${e instanceof Error ? e.message : String(e)}`));
+    }
     return [];
   }
 }
