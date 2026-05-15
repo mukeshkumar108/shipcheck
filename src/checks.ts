@@ -128,6 +128,28 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
     } catch (e) {}
   }
 
+  // Check for AI assistant breadcrumbs — skipped security/auth work left as TODOs
+  const BREADCRUMB_REGEX = /(?:TODO|FIXME|HACK|XXX)[^\n]*(?:auth|rate.?limit|security|secret|bypass|sanitize|permission|rbac|csrf|xss|inject)/gi;
+  for (const file of ctx.files) {
+    if (file.includes('node_modules') || file.includes('.git') || file.endsWith('.md')) continue;
+    try {
+      const content = await fs.readFile(file, 'utf-8');
+      const matches = content.match(BREADCRUMB_REGEX);
+      if (matches) {
+        findings.push({
+          id: 'unresolved-security-todo',
+          title: `Unresolved security TODO in ${file}`,
+          description: `Found ${matches.length} comment(s) flagging skipped security work: ${matches.slice(0, 2).map(m => `"${m.trim()}"`).join(', ')}`,
+          whyItMatters: 'AI assistants leave these as reminders and move on. Vibe coders ship them. This is how auth gets skipped in production.',
+          severity: 'high',
+          whatToDo: 'Resolve every security TODO before shipping. Do not treat them as optional.',
+          fixPrompt: `Review and resolve the security-related TODO/FIXME comments in ${file}. Implement the missing auth, rate limiting, or sanitization they describe.`,
+          file,
+        });
+      }
+    } catch (e) {}
+  }
+
   // Meta checks: Large files
   for (const file of ctx.files) {
     if (file.includes('node_modules') || file.includes('.git')) continue;
