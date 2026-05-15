@@ -36,9 +36,14 @@ const INSTRUCTION_PATTERNS = [
 
 const API_PATTERNS = [
   'app/api/**/route.{ts,js,tsx,jsx}',
+  'src/app/api/**/route.{ts,js,tsx,jsx}',
   'pages/api/**/*.{ts,js,tsx,jsx}',
+  'src/pages/api/**/*.{ts,js,tsx,jsx}',
   'server/**/*.{ts,js,tsx,jsx}',
+  'src/server/**/*.{ts,js,tsx,jsx}',
   'api/**/*.{ts,js,tsx,jsx}',
+  'routes/**/*.{ts,js,tsx,jsx}',
+  'src/routes/**/*.{ts,js,tsx,jsx}',
 ];
 
 const AI_TERMS = [

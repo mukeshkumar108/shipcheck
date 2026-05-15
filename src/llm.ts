@@ -49,7 +49,7 @@ CRITICAL REVIEW CATEGORIES:
    - Tight coupling: Is business logic baked into components or routes instead of being separated?
    - Missing Timeouts/Retries: Will one slow third-party API call (Stripe, Twilio) hang the entire process?
    - Scale Traps: Are file uploads going to local disk instead of object storage (S3)? Is state stored in-memory (breaking horizontal scale)?
-4. 🔄 OPERATIONAL BLIND BLOTS: 
+4. 🔄 OPERATIONAL BLIND SPOTS:
    - Silent Failures: Are catch blocks swallowing errors without context?
    - Logic Loops: Code that could cause infinite token wastage in AI-generated flows.
 5. 📝 INSTRUCTION QUALITY: Review SHIPCHECK.md/rules. Are they generic? Do they fail to protect the specific "risky surfaces" of this app?
@@ -57,9 +57,27 @@ CRITICAL REVIEW CATEGORIES:
 RESPONSE PHILOSOPHY:
 - Prioritize by COST and SLEEP, not by count. If a file has 10 minor issues but 1 that could leak all user data, focus on the leak.
 - Be opinionated about PATTERNS. Don't just flag a problem; explain the "shape" of the correct solution.
-- Use "Why it matters" to explain the real-world consequence.
+- Use "Why it matters" to explain the real-world consequence (e.g., "A single script could drain your balance" or "This will lock your DB at 3am").
 
-Return findings in a JSON object with a "findings" key. Each finding MUST have a "fixPrompt" that is a surgical instruction.`,
+You MUST return a JSON object with EXACTLY this structure — use these exact field names, no substitutions:
+{
+  "findings": [
+    {
+      "id": "short-kebab-case-identifier",
+      "title": "One-line title of the issue",
+      "description": "What was found in the code",
+      "whyItMatters": "Real-world consequence if not fixed",
+      "severity": "critical",
+      "whatToDo": "Concrete steps to fix this",
+      "fixPrompt": "Surgical instruction for an AI coding assistant to fix this correctly",
+      "file": "path/to/file.ts",
+      "line": 42
+    }
+  ]
+}
+
+severity must be one of: critical, high, medium, low, info
+file and line are optional. All other fields are required. Return an empty findings array if nothing actionable is found.`,
           },
           {
             role: 'user',
@@ -82,8 +100,19 @@ Return findings in a JSON object with a "findings" key. Each finding MUST have a
     if (!content) return [];
 
     const parsed = JSON.parse(content);
-    const findings = FindingArraySchema.parse(parsed.findings);
-    
+    const normalized = (parsed.findings ?? []).map((f: any, i: number) => ({
+      id: f.id ?? f.ruleId ?? f.rule ?? f.check ?? `ai-finding-${i}`,
+      title: f.title ?? f.name ?? f.summary ?? 'Untitled finding',
+      description: f.description ?? f.details ?? f.message ?? '',
+      whyItMatters: f.whyItMatters ?? f.why ?? f.impact ?? f.reason ?? '',
+      severity: f.severity ?? 'medium',
+      whatToDo: f.whatToDo ?? f.recommendation ?? f.fix ?? f.action ?? f.remediation ?? f.solution ?? '',
+      fixPrompt: f.fixPrompt ?? f.fix_prompt ?? f.prompt ?? '',
+      file: f.file ?? f.filePath ?? undefined,
+      line: f.line ?? f.lineNumber ?? undefined,
+    }));
+    const findings = FindingArraySchema.parse(normalized);
+
     return findings;
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {

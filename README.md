@@ -29,17 +29,17 @@ npm run dev
 
 ## Commands
 ```bash
-shipcheck init     # Create SHIPCHECK.md guardrails
-shipcheck          # Run safety check (Semantic AI + Deterministic)
-shipcheck ship     # Launch-critical scan only
-shipcheck -v       # Verbose mode (see what AI is thinking)
+shipcheck init     # Create SHIPCHECK.md guardrails (stack-aware)
+shipcheck          # Full scan: deterministic + semantic AI review
+shipcheck ship     # Fast local scan only — no AI, safe for pre-commit/CI
+shipcheck -v       # Verbose mode (see which files were sent to AI)
 ```
 
 ## What Shipcheck looks for
 
 Shipcheck acts as a senior developer partner, specifically hunting for the "vibe-coder" mistakes that AI assistants often make:
 
-*   **🛡️ Exposed Secrets**: Hardcoded API keys, tokens, or credentials in your code or tracked `.env` files (checked locally for privacy).
+*   **🛡️ Exposed Secrets**: Hardcoded API keys, tokens, or credentials — including provider-specific patterns for OpenAI, Anthropic, Stripe, and AWS. Checked locally; never sent to an external API.
 *   **🔐 Missing Auth**: Sensitive API routes or Server Actions that are missing authentication or authorization checks.
 *   **📤 Unsafe Uploads**: File upload endpoints that lack size limits or MIME-type validation.
 *   **💸 AI Cost Controls**: Expensive AI endpoints that are missing rate limits or proper error handling.
@@ -48,12 +48,13 @@ Shipcheck acts as a senior developer partner, specifically hunting for the "vibe
 *   **📉 Architectural Fragility**: Files that are becoming too large or complex for AI assistants to safely reason about.
 
 ## How it works: Hybrid AI Review
-...
 
 Shipcheck uses a two-phase engine to catch what linters miss:
 
-1. **Local Deterministic Scan**: Blazing fast regex checks catch hardcoded secrets locally. This ensures your private keys are **never** sent to an external AI API.
-2. **Semantic AI Review**: High-risk files (APIs, Server Actions, AI integrations) are analyzed by **DeepSeek**. It looks for logical flaws like missing auth, unsafe uploads, and expensive AI loops.
+1. **Local Deterministic Scan**: Regex checks catch hardcoded secrets locally — including provider-specific patterns for OpenAI, Anthropic, Stripe, and AWS. Files containing secrets are **never** sent to the AI.
+2. **Semantic AI Review**: High-risk files (API routes, Server Actions, AI integrations) are analyzed by **DeepSeek v4 Flash** via OpenRouter. It hunts for logical flaws like missing auth, IDOR, unsafe uploads, N+1 queries, and expensive AI loops.
+
+`shipcheck ship` skips the AI phase entirely — deterministic only, no API key needed, fast enough for a pre-commit hook.
 
 ## Bring your own key
 

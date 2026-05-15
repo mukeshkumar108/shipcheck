@@ -6,9 +6,9 @@ import chalk from 'chalk';
 // Hardened secret regexes
 const SECRET_PATTERNS = [
   { id: 'generic-secret', regex: /(?:key|secret|token|auth|password|pwd)[_-]?(?:id|value|str)?\s*[:=]\s*['"]([a-zA-Z0-9_\-\.]{16,})['"]/gi },
-  { id: 'openai-secret', regex: /sk-[a-zA-Z0-9]{48}/g },
-  { id: 'anthropic-secret', regex: /sk-ant-api03-[a-zA-Z0-9\-_]{93}AA/g },
-  { id: 'stripe-secret', regex: /(?:sk|pk)_(?:live|test)_[0-9a-zA-Z]{24}/g },
+  { id: 'openai-secret', regex: /sk-(?:proj-)?[a-zA-Z0-9_\-]{40,}/g },
+  { id: 'anthropic-secret', regex: /sk-ant-[a-zA-Z0-9\-_]{40,}/g },
+  { id: 'stripe-secret', regex: /(?:sk|pk|rk)_(?:live|test)_[0-9a-zA-Z]{10,}/g },
   { id: 'aws-secret', regex: /AKIA[0-9A-Z]{16}/g },
 ];
 
@@ -149,12 +149,9 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
   }
 
   // --- Phase 2: Semantic AI Review ---
-  // Skip AI entirely in 'ship' mode if requested, but for now we'll keep it but limit it.
-  // Actually, 'ship' mode should be fast. Let's make Phase 2 optional or prioritized.
-  
-  if (ctx.isShipMode && !process.env.OPENROUTER_API_KEY) {
-     // Skip AI review in ship mode if no key is present (don't even warn)
-     return findings;
+  // ship mode is fast/local-first — skip AI entirely
+  if (ctx.isShipMode) {
+    return findings;
   }
 
   const highRiskFiles = [...new Set([...ctx.apiFiles, ...ctx.aiFiles, ...ctx.instructionFiles])].slice(0, 20);
