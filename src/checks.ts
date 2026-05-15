@@ -3,13 +3,24 @@ import type { Finding, ScanContext } from './types.js';
 import { analyzeFilesWithAI } from './llm.js';
 import chalk from 'chalk';
 
-const SECRET_REGEX = /(?:key|secret|token|auth|password|pwd)[_-]?(?:id|value|str)?\s*[:=]\s*['"]([a-zA-Z0-9_\-\.]{16,})['"]/gi;
+// Hardened secret regexes
+const SECRET_PATTERNS = [
+  { id: 'generic-secret', regex: /(?:key|secret|token|auth|password|pwd)[_-]?(?:id|value|str)?\s*[:=]\s*['"]([a-zA-Z0-9_\-\.]{16,})['"]/gi },
+  { id: 'openai-secret', regex: /sk-[a-zA-Z0-9]{48}/g },
+  { id: 'anthropic-secret', regex: /sk-ant-api03-[a-zA-Z0-9\-_]{93}AA/g },
+  { id: 'stripe-secret', regex: /(?:sk|pk)_(?:live|test)_[0-9a-zA-Z]{24}/g },
+  { id: 'aws-secret', regex: /AKIA[0-9A-Z]{16}/g },
+];
+
 const NEXT_PUBLIC_SECRET_REGEX = /NEXT_PUBLIC_(?:.*(?:SECRET|API|TOKEN|KEY).*)\s*=/gi;
 
 export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
   const findings: Finding[] = [];
+  const filesWithSecrets = new Set<string>();
 
   // --- Phase 1: Local Deterministic Scan ---
+
+  // Check for missing instruction files
   if (ctx.instructionFiles.length === 0) {
     findings.push({
       id: 'missing-instructions',
@@ -22,32 +33,47 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
     });
   }
 
+  // Check for exposed secrets in ALL files first (Security Hardening)
   for (const file of ctx.files) {
-    if (ctx.envFiles.some(e => e.path === file) || file.endsWith('.md') || file.endsWith('.json')) continue;
-    const isConfigOrDoc = file.endsWith('.md') || file.endsWith('.json') || file.endsWith('.yml') || file.endsWith('.yaml') || file.includes('config');
+    if (file.endsWith('.md') || file.endsWith('.json')) continue;
+    
     try {
       const content = await fs.readFile(file, 'utf-8');
-      if (content.match(SECRET_REGEX)) {
-        findings.push({
-          id: 'exposed-secret',
-          title: `Possible secret exposed in ${file}`,
-          description: 'Hardcoded credentials detected.',
-          whyItMatters: 'If you commit this to GitHub, your app could be compromised in seconds.',
-          severity: isConfigOrDoc ? 'high' : 'critical',
-          whatToDo: 'Move the secret to a .env file and add it to .gitignore.',
-          fixPrompt: `Move the hardcoded secret found in ${file} to a .env file and use process.env to access it.`,
-          file,
-        });
+      for (const pattern of SECRET_PATTERNS) {
+        if (content.match(pattern.regex)) {
+          filesWithSecrets.add(file);
+          if (ctx.envFiles.some(e => e.path === file)) continue; // Handled in env check
+
+          findings.push({
+            id: 'exposed-secret',
+            title: `Possible secret exposed in ${file}`,
+            description: `Hardcoded ${pattern.id} detected.`,
+            whyItMatters: 'If you commit this to GitHub, your app could be compromised in seconds.',
+            severity: 'critical',
+            whatToDo: 'Move the secret to a .env file and add it to .gitignore.',
+            fixPrompt: `Move the hardcoded secret found in ${file} to a .env file and use process.env to access it.`,
+            file,
+          });
+          break;
+        }
       }
     } catch (e) {}
   }
 
+  // Check for NEXT_PUBLIC secrets & general env secrets
   let reportedIgnoredEnv = false;
   for (const envFile of ctx.envFiles) {
     try {
       const content = await fs.readFile(envFile.path, 'utf-8');
       const hasNextPublic = content.match(NEXT_PUBLIC_SECRET_REGEX);
-      const hasSecret = content.match(SECRET_REGEX) || hasNextPublic;
+      
+      let hasSecret = false;
+      for (const pattern of SECRET_PATTERNS) {
+        if (content.match(pattern.regex)) {
+          hasSecret = true;
+          break;
+        }
+      }
 
       if (hasNextPublic) {
         findings.push({
@@ -102,6 +128,7 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
     } catch (e) {}
   }
 
+  // Meta checks: Large files
   for (const file of ctx.files) {
     if (file.includes('node_modules') || file.includes('.git')) continue;
     try {
@@ -122,11 +149,23 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
   }
 
   // --- Phase 2: Semantic AI Review ---
+  // Skip AI entirely in 'ship' mode if requested, but for now we'll keep it but limit it.
+  // Actually, 'ship' mode should be fast. Let's make Phase 2 optional or prioritized.
+  
+  if (ctx.isShipMode && !process.env.OPENROUTER_API_KEY) {
+     // Skip AI review in ship mode if no key is present (don't even warn)
+     return findings;
+  }
+
   const highRiskFiles = [...new Set([...ctx.apiFiles, ...ctx.aiFiles, ...ctx.instructionFiles])].slice(0, 20);
-  if (highRiskFiles.length > 0) {
-    console.log(chalk.blue(`\n🧠 Analyzing logic in ${highRiskFiles.length} high-risk files...`));
+  
+  // Filter out files that contain deterministic secrets to ensure they are NEVER sent to AI
+  const safeFilesToReview = highRiskFiles.filter(f => !filesWithSecrets.has(f));
+  
+  if (safeFilesToReview.length > 0) {
+    console.log(chalk.blue(`\n🧠 Analyzing logic in ${safeFilesToReview.length} high-risk files...`));
     const filesToReview = [];
-    for (const path of highRiskFiles) {
+    for (const path of safeFilesToReview) {
       try {
         const content = await fs.readFile(path, 'utf-8');
         filesToReview.push({ path, content: content.slice(0, 10000) });

@@ -55,11 +55,18 @@ export function printSummary(ctx: ScanContext, findings: Finding[], rawCount: nu
   }
 
   console.log(`\n${chalk.bold('Top areas checked:')}`);
-  console.log(`${chalk.green('✓')} secrets`);
-  console.log(`${chalk.green('✓')} auth-sensitive routes`);
-  console.log(`${chalk.green('✓')} AI cost/rate-limit patterns`);
-  console.log(`${chalk.green('✓')} upload/file handling`);
-  console.log(`${chalk.green('✓')} instruction guardrails`);
+  
+  // Conditional checkmarks
+  const check = (label: string, condition: boolean) => {
+    if (condition) console.log(`${chalk.green('✓')} ${label}`);
+    else console.log(`${chalk.gray('—')} ${label} (no relevant files detected)`);
+  };
+
+  check('secrets', ctx.files.length > 0);
+  check('auth-sensitive routes', ctx.apiFiles.length > 0);
+  check('AI cost/rate-limit patterns', ctx.aiFiles.length > 0 || ctx.aiUsageDetected);
+  check('upload/file handling', ctx.apiFiles.some(f => f.toLowerCase().includes('upload')));
+  check('instruction guardrails', ctx.instructionFiles.length > 0);
 
   if (isVerbose) {
     console.log(`\n${chalk.bold.magenta('AI Analysis (Verbose Mode):')}`);

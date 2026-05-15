@@ -88,10 +88,16 @@ export async function scanProject(isShipMode: boolean, includeUntracked: boolean
 
   const packageJsonPath = allFiles.find(f => f === 'package.json');
   let packageJson = undefined;
+  let stack: any = 'unknown';
+
   if (packageJsonPath) {
     try {
       const content = await fs.readFile(packageJsonPath, 'utf-8');
       packageJson = JSON.parse(content);
+      const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+      if (deps['next']) stack = 'nextjs';
+      else if (deps['express']) stack = 'express';
+      else stack = 'node';
     } catch (e) {}
   }
 
@@ -117,16 +123,7 @@ export async function scanProject(isShipMode: boolean, includeUntracked: boolean
 
   let aiUsageDetected = false;
   let aiFiles: string[] = [];
-  
-  if (packageJson) {
-    const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-    aiUsageDetected = AI_TERMS.some(term => deps[term] || Object.keys(deps).some(d => d.includes(term)));
-  }
-
-  // Find files specifically mentioning AI terms
-  const codeFiles = allFiles.filter(f => 
-    f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.tsx') || f.endsWith('.jsx')
-  );
+  const codeFiles = allFiles.filter(f => f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.tsx') || f.endsWith('.jsx'));
 
   for (const file of codeFiles) {
     try {
@@ -148,6 +145,7 @@ export async function scanProject(isShipMode: boolean, includeUntracked: boolean
     aiUsageDetected,
     isShipMode,
     skippedCount,
-    analyzedByAI: [], // Will be populated in runChecks
+    analyzedByAI: [],
+    stack,
   };
 }

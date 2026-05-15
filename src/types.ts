@@ -31,9 +31,10 @@ export interface ScanContext {
   envFiles: EnvFile[];
   instructionFiles: string[];
   apiFiles: string[];
-  aiFiles: string[]; // Files specifically using AI SDKs/APIs
+  aiFiles: string[];
   aiUsageDetected: boolean;
   isShipMode: boolean;
   skippedCount: number;
-  analyzedByAI: string[]; // Paths of files actually sent to LLM
+  analyzedByAI: string[];
+  stack: 'nextjs' | 'express' | 'node' | 'unknown';
 }
