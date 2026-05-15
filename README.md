@@ -35,7 +35,20 @@ shipcheck ship     # Launch-critical scan only
 shipcheck -v       # Verbose mode (see what AI is thinking)
 ```
 
+## What Shipcheck looks for
+
+Shipcheck acts as a senior developer partner, specifically hunting for the "vibe-coder" mistakes that AI assistants often make:
+
+*   **🛡️ Exposed Secrets**: Hardcoded API keys, tokens, or credentials in your code or tracked `.env` files (checked locally for privacy).
+*   **🔐 Missing Auth**: Sensitive API routes or Server Actions that are missing authentication or authorization checks.
+*   **📤 Unsafe Uploads**: File upload endpoints that lack size limits or MIME-type validation.
+*   **💸 AI Cost Controls**: Expensive AI endpoints that are missing rate limits or proper error handling.
+*   **🔄 AI Loops**: Logic that could lead to infinite loops or massive token wastage in AI-generated code.
+*   **📝 Stale Instructions**: Missing or weak `SHIPCHECK.md` / `.cursorrules` that fail to guide your AI on security.
+*   **📉 Architectural Fragility**: Files that are becoming too large or complex for AI assistants to safely reason about.
+
 ## How it works: Hybrid AI Review
+...
 
 Shipcheck uses a two-phase engine to catch what linters miss:
 
