@@ -151,6 +151,7 @@ export async function scanProject(isShipMode: boolean, includeUntracked: boolean
     isShipMode,
     skippedCount,
     analyzedByAI: [],
+    triagedByAI: false,
     stack,
   };
 }

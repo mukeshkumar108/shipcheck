@@ -124,6 +124,77 @@ file and line are optional. All other fields are required. Return an empty findi
   }
 }
 
+export async function triageProjectFiles(files: string[], packageJson?: any): Promise<string[]> {
+  if (!OPENROUTER_API_KEY || files.length === 0) return [];
+
+  const pkgSummary = packageJson
+    ? `Dependencies: ${JSON.stringify({ ...packageJson.dependencies, ...packageJson.devDependencies })}`
+    : '';
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: SHIPCHECK_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: `You are a security-focused code reviewer doing a first-pass triage of a codebase.
+
+Given a list of file paths and the project's dependencies, identify which files are the highest risk and most worth a deep review. You understand how real projects are structured — monorepos, non-standard layouts, microservices — don't rely on folder names alone.
+
+Prioritize files that are likely to handle:
+- Incoming HTTP requests (API routes, handlers, controllers, middleware)
+- Authentication and authorization (auth, session, JWT, permissions)
+- AI/LLM integrations (OpenAI, Anthropic, AI SDK calls)
+- Payments (Stripe, billing, webhooks)
+- File uploads or user-generated content
+- Database queries or ORM models with user data
+- External API integrations (third-party fetches, webhooks)
+- Configuration that affects runtime security
+
+Return ONLY this JSON structure — no other text:
+{ "files": ["path/to/file.ts", "path/to/other.ts"] }
+
+Up to 20 files, highest risk first. Only return paths from the provided list.`,
+          },
+          {
+            role: 'user',
+            content: `${pkgSummary}\n\nAll project files:\n${files.join('\n')}`,
+          },
+        ],
+      }),
+    });
+
+    clearTimeout(timeoutId);
+    if (!response.ok) return [];
+
+    const data = await response.json() as any;
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return [];
+
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed.files)) return [];
+
+    const fileSet = new Set(files);
+    return parsed.files
+      .filter((f: any) => typeof f === 'string' && fileSet.has(f))
+      .slice(0, 20);
+  } catch (e) {
+    clearTimeout(timeoutId);
+    return [];
+  }
+}
+
 export function hasAIEnabled(): boolean {
   return !!OPENROUTER_API_KEY;
 }

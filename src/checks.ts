@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import type { Finding, ScanContext } from './types.js';
-import { analyzeFilesWithAI } from './llm.js';
+import { analyzeFilesWithAI, triageProjectFiles } from './llm.js';
 import chalk from 'chalk';
 
 // Hardened secret regexes
@@ -154,13 +154,35 @@ export async function runChecks(ctx: ScanContext): Promise<Finding[]> {
     return findings;
   }
 
-  const highRiskFiles = [...new Set([...ctx.apiFiles, ...ctx.aiFiles, ...ctx.instructionFiles])].slice(0, 20);
-  
-  // Filter out files that contain deterministic secrets to ensure they are NEVER sent to AI
+  // AI triage: let the model identify high-risk files from the full file tree.
+  // This works for any project structure — monorepos, non-standard layouts, anything.
+  // Falls back to glob-based discovery if AI is unavailable or triage fails.
+  const TRIAGE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+  const triageableFiles = ctx.files.filter(f => {
+    const ext = f.substring(f.lastIndexOf('.'));
+    return TRIAGE_EXTENSIONS.has(ext);
+  });
+
+  const globFallback = [...new Set([...ctx.apiFiles, ...ctx.aiFiles])];
+
+  console.log(chalk.blue(`\n🔍 Identifying high-risk files across ${triageableFiles.length} source files...`));
+  const triaged = await triageProjectFiles(triageableFiles, ctx.packageJson);
+
+  // Always include instruction files — triage focuses on code, not config
+  const highRiskFiles = [
+    ...new Set([
+      ...(triaged.length > 0 ? triaged : globFallback),
+      ...ctx.instructionFiles,
+    ])
+  ].slice(0, 20);
+
+  ctx.triagedByAI = triaged.length > 0;
+
+  // Never send files containing detected secrets to the AI
   const safeFilesToReview = highRiskFiles.filter(f => !filesWithSecrets.has(f));
-  
+
   if (safeFilesToReview.length > 0) {
-    console.log(chalk.blue(`\n🧠 Analyzing logic in ${safeFilesToReview.length} high-risk files...`));
+    console.log(chalk.blue(`🧠 Analyzing logic in ${safeFilesToReview.length} high-risk files...`));
     const filesToReview = [];
     for (const path of safeFilesToReview) {
       try {

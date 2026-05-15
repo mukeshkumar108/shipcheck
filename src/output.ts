@@ -70,6 +70,7 @@ export function printSummary(ctx: ScanContext, findings: Finding[], rawCount: nu
 
   if (isVerbose) {
     console.log(`\n${chalk.bold.magenta('AI Analysis (Verbose Mode):')}`);
+    console.log(`- file selection: ${ctx.triagedByAI ? chalk.green('AI triage') : chalk.yellow('glob fallback')}`);
     console.log(`- sent ${ctx.analyzedByAI.length} high-risk files to DeepSeek`);
     console.log(`- skipped ${ctx.skippedCount} generated/untracked files`);
     const collapsed = rawCount - findings.length;

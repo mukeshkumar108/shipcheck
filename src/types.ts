@@ -36,5 +36,6 @@ export interface ScanContext {
   isShipMode: boolean;
   skippedCount: number;
   analyzedByAI: string[];
+  triagedByAI: boolean;
   stack: 'nextjs' | 'express' | 'node' | 'unknown';
 }
